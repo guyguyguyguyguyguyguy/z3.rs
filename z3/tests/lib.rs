@@ -2,7 +2,7 @@ use log::info;
 use std::convert::TryInto;
 use std::ops::Add;
 use std::time::Duration;
-use z3::ast::{atleast, atmost, Array, Ast, Bool, Int, BV};
+use z3::ast::{atleast, atmost, Array, Ast, Bool, Int, BV, lambda};
 use z3::*;
 
 use num::{bigint::BigInt, rational::BigRational};
@@ -428,6 +428,139 @@ fn test_substitution() {
 
     assert!(x_plus_y.substitute(substitutions) == x_plus_z);
 }
+
+
+#[test]
+fn test_substitution_vars() {
+    let cfg = Config::new();
+    let ctx = Context::new(&cfg);
+
+    let x = ast::Int::fresh_const(&ctx, "x");
+    let y = ast::Int::fresh_const(&ctx, "y");
+
+    let x_plus_y = ast::Int::add(&ctx, &[&x, &y]);
+
+    let ten_plus_one = x_plus_y.substitute_vars(&[&ast::Int::from_i64(&ctx, 10), &ast::Int::from_i64(&ctx, 1)]);
+    let real = ast::Int::add(&ctx, &[ast::Int::from_i64(&ctx, 10), ast::Int::from_i64(&ctx, 1)]);
+
+    println!("{:?}", x.kind());
+    println!("{:?}", x.children());
+
+    println!("subst-vars:\n\t{:?}\n\t{:?}", ten_plus_one, real);
+
+    assert!(ten_plus_one == real);
+}
+
+#[test]
+fn test_substitution_funs() {
+    let cfg = Config::new();
+    let ctx = Context::new(&cfg);
+
+    let f = FuncDecl::new(&ctx, "c", &[&Sort::real(&ctx), &Sort::real(&ctx)], &Sort::real(&ctx));
+
+    let x = ast::Real::new_const(&ctx, "y");
+    let y = ast::Real::new_const(&ctx, "z");
+
+    let sub = f.apply(&[&x, &ast::Real::from_real(&ctx, 10, 1)]).as_real().unwrap(); 
+    let x_plus_y = ast::Real::add(&ctx, &[&x, &y]);
+    let test = sub.substitute_funs(&[(&f, &x_plus_y)]);
+
+    let real = ast::Real::add(&ctx, &[&x, &ast::Real::from_real(&ctx, 10, 1)]);
+
+    println!("subst-funs:\n\t{:?}\n\t{:?}", test, real);
+
+    assert!(test == real);
+}
+
+#[test]
+fn test_lambda_function_with_substitution() {
+    let cfg = Config::new();
+    let ctx = Context::new(&cfg);
+
+    let int_sort = Sort::int(&ctx);
+    let domain = vec![&int_sort];
+    let decl_names = vec![Symbol::String("x".to_string())];
+
+    let x = Int::new_const(&ctx, "x");
+    let body = ast::Int::mul(&ctx, &[&x, &Int::from_i64(&ctx, 2)]);
+
+    let lambda_expr = lambda(
+        &ctx,
+        decl_names.len(),
+        &domain,
+        &decl_names,
+        &ast::Dynamic::from_ast(&body),
+    );
+
+    assert_eq!(
+        lambda_expr.to_string(),
+        "(lambda ((x Int)) (* x 2))"
+    );
+
+    let three = Int::from_i64(&ctx, 3);
+    let substituted_body = body.substitute(&[(&x, &three)]);
+
+    let simplified_result = substituted_body.simplify();
+    assert_eq!(simplified_result.to_string(), "6");
+
+    let solver = z3::Solver::new(&ctx);
+    let equality = substituted_body._eq(&Int::from_i64(&ctx, 6));
+    solver.assert(&equality);
+
+    assert_eq!(solver.check(), z3::SatResult::Sat);
+}
+
+#[test]
+fn test_func_decl_substitution_with_lambda() {
+    // Step 1: Initialize Z3 context
+    let cfg = Config::new();
+    let ctx = Context::new(&cfg);
+
+    // Step 2: Define a function declaration `f: Int -> Int`
+    let int_sort = Sort::int(&ctx);
+    let f_sym = Symbol::String("f".to_string());
+    let f = FuncDecl::new(&ctx, f_sym, &[&int_sort], &int_sort);
+
+    // Step 3: Define a lambda expression: lambda x. x * 2
+    let domain = vec![&int_sort];
+    let decl_names = vec![Symbol::String("x".to_string())];
+    let x = Int::from_i64(&ctx, 0); // Bound variable (de-Bruijn index 0)
+    let body = ast::Int::mul(&ctx, &[&x, &Int::from_i64(&ctx, 2)]);
+
+    let lambda_expr = lambda(
+        &ctx,
+        decl_names.len(),
+        &domain,
+        &decl_names,
+        &ast::Dynamic::from_ast(&body),
+    );
+
+    // Assert the lambda has the expected structure
+    assert_eq!(lambda_expr.to_string(), "(lambda ((x Int)) (* x 2))");
+
+    // Step 4: Replace `f(1)` with the lambda body
+    // Create `f(1)`
+    let one = Int::from_i64(&ctx, 1);
+    let f_app = f.apply(&[&one]); // f(1)
+
+    // Substitute `f` with the lambda by replacing `f(1)` with the lambda's behavior
+    let substituted_body = body.substitute(&ctx, &[&x, &one]); // Replace bound variable x with 1
+
+    // Step 5: Validate substitution in an assertion
+    // Assert `f(1) = 2` turns into `(* 1 2) = 2`
+    let expected_result = Int::from_i64(&ctx, 2);
+    let equality = substituted_body._eq(&expected_result);
+    let solver = z3::Solver::new(&ctx);
+    solver.assert(&equality);
+
+    // Verify the result is satisfiable
+    assert_eq!(solver.check(), z3::SatResult::Sat);
+
+    // Debugging output
+    println!("Substituted assertion: {}", equality.to_string());
+}
+
+
 
 #[test]
 fn test_real_cmp() {

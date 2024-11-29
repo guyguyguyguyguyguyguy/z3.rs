@@ -332,6 +332,61 @@ pub trait Ast<'ctx>: fmt::Debug {
         }
     }
 
+    /// Substitute the free variables in `a` with the expressions in `to`.
+    ///
+    /// For every `i` smaller than `num_exprs`, the variable with de-Bruijn
+    /// index `i` is replaced with term `to[i]`.
+    fn substitute_vars<T: Ast<'ctx>>(&self, substitutions: &[&T]) -> Self
+    where
+        Self: Sized,
+    {
+        unsafe {
+            Self::wrap(self.get_ctx(), {
+                let this_ast = self.get_z3_ast();
+                let num_exprs = substitutions.len() as ::std::os::raw::c_uint;
+                let mut tos: Vec<_> = vec![];
+
+                for to_ast in substitutions {
+                    tos.push(to_ast.get_z3_ast());
+                }
+
+                Z3_substitute_vars(
+                    self.get_ctx().z3_ctx,
+                    this_ast,
+                    num_exprs,
+                    tos.as_ptr(),
+                )
+            })
+        }
+    }
+
+    fn substitute_funs<T: Ast<'ctx>>(&self, substitutions: &[(&FuncDecl, &T)]) -> Self
+    where
+        Self: Sized,
+    {
+        unsafe {
+            Self::wrap(self.get_ctx(), {
+                let this_ast = self.get_z3_ast();
+                let num_exprs = substitutions.len() as ::std::os::raw::c_uint;
+                let mut froms: Vec<_> = vec![];
+                let mut tos: Vec<_> = vec![];
+
+                for (func_decl, to_ast) in substitutions {
+                    froms.push(func_decl.z3_func_decl);
+                    tos.push(to_ast.get_z3_ast());
+                }
+
+                Z3_substitute_funs(
+                    self.get_ctx().z3_ctx,
+                    this_ast,
+                    num_exprs,
+                    froms.as_ptr(),
+                    tos.as_ptr(),
+                )
+            })
+        }
+    }
+
     /// Return the number of children of this `Ast`.
     ///
     /// Leaf nodes (eg `Bool` consts) will return 0.
@@ -2316,6 +2371,31 @@ pub fn lambda_const<'ctx>(
                 ctx.z3_ctx,
                 bounds.len().try_into().unwrap(),
                 bounds.as_ptr() as *const Z3_app,
+                body.get_z3_ast(),
+            ),
+        )
+    }
+}
+
+pub fn lambda<'ctx>(
+    ctx: &'ctx Context,
+    num_decls: usize,
+    domain: &[&Sort<'ctx>],
+    decl_names: &[Symbol],
+    body: &Dynamic<'ctx>,
+) -> Array<'ctx> {
+
+    let domain: Vec<_> = domain.iter().map(|s| s.z3_sort).collect();
+    let decl_names: Vec<_> = decl_names.iter().map(|n| n.as_z3_symbol(ctx)).collect();
+
+    unsafe {
+        Ast::wrap(
+            ctx,
+            Z3_mk_lambda(
+                ctx.z3_ctx,
+                num_decls.try_into().unwrap(),
+                domain.as_ptr(),
+                decl_names.as_ptr(),
                 body.get_z3_ast(),
             ),
         )

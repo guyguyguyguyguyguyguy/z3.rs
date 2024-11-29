@@ -12,10 +12,15 @@ fn main() {
     let search_paths = {
         if let Ok(lib) = pkg_config::Config::new().probe("z3") {
             lib.include_paths
+        } else if let Ok(path) = env::var("Z3_SYS_LIB_DIR") {
+            // Use the path specified in the environment variable
+            println!("cargo:rustc-link-search=native={}", path);
+            vec![PathBuf::from(path)]
         } else {
-            vec![]
+            panic!("Could not find Z3 library. Set the Z3_SYS_LIB_DIR environment variable.");
         }
     };
+
 
     #[cfg(feature = "deprecated-static-link-z3")]
     println!("cargo:warning=The 'static-link-z3' feature is deprecated. Please use the 'bundled' feature.");
@@ -83,17 +88,17 @@ fn find_library_header_by_vcpkg() -> String {
 #[cfg(not(feature = "vcpkg"))]
 fn find_header_by_env() -> String {
     const Z3_HEADER_VAR: &str = "Z3_SYS_Z3_HEADER";
-    let header = if cfg!(feature = "bundled") {
-        "z3/src/api/z3.h".to_string()
-    } else if let Ok(header_path) = env::var(Z3_HEADER_VAR) {
+    let header = if let Ok(header_path) = env::var(Z3_HEADER_VAR) {
         header_path
     } else {
-        "wrapper.h".to_string()
+        // "/usr/local/include/z3.h".to_string() // Default path for local Z3 installation
+        "/home/guy/z3/src/api/z3.h".to_string() // Default path for local Z3 installation
     };
     println!("cargo:rerun-if-env-changed={Z3_HEADER_VAR}");
     println!("cargo:rerun-if-changed={header}");
     header
 }
+
 
 fn generate_binding(header: &str, search_paths: &[PathBuf]) {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());

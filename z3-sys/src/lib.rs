@@ -4476,6 +4476,18 @@ extern "C" {
         to: *const Z3_ast,
     ) -> Z3_ast;
 
+    // Apply substitution m on t, m is a list of pairs of a function and expression (from, to)
+    // Every occurrence in to of the function from is replaced with the expression to.
+    // The expression to can have free variables, that refer to the arguments of from.
+    // For examples, see 
+    pub fn Z3_substitute_funs(
+        c: Z3_context,
+        a: Z3_ast,
+        num_funs: ::std::os::raw::c_uint,
+        from: *const Z3_func_decl,
+        to: *const Z3_ast,
+    ) -> Z3_ast;
+
     /// Translate/Copy the AST `a` from context `source` to context `target`.
     ///
     /// AST `a` must have been created using context `source`.
