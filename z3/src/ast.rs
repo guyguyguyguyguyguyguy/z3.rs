@@ -878,6 +878,15 @@ impl<'ctx> Int<'ctx> {
         }
     }
 
+    pub fn new_var(ctx: &'ctx Context, idx: u32) -> Int<'ctx> {
+        let sort = Sort::int(ctx);
+        unsafe {
+            Self::wrap(ctx, {
+                Z3_mk_bound(ctx.z3_ctx, idx, sort.z3_sort)
+            })
+        }
+    }
+
     pub fn from_i64(ctx: &'ctx Context, i: i64) -> Int<'ctx> {
         let sort = Sort::int(ctx);
         unsafe { Self::wrap(ctx, Z3_mk_int64(ctx.z3_ctx, i, sort.z3_sort)) }
